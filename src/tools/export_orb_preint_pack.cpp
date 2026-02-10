@@ -210,6 +210,57 @@ static void appendMatrixBlock(std::ostream& os, const std::string& name, const E
   os << '\n';
 }
 
+struct PreintFactorJacobians {
+  Eigen::Matrix<double, 15, 15> J_s = Eigen::Matrix<double, 15, 15>::Zero();
+  Eigen::Matrix<double, 15, 15> J_e = Eigen::Matrix<double, 15, 15>::Zero();
+};
+
+static inline Eigen::Matrix3d skew(const Eigen::Vector3d& v) {
+  Eigen::Matrix3d S;
+  S << 0.0, -v.z(), v.y(), v.z(), 0.0, -v.x(), -v.y(), v.x(), 0.0;
+  return S;
+}
+
+static PreintFactorJacobians build_preint_factor_jacobians_local(const Eigen::Matrix3d& dR, const Eigen::Vector3d& dP,
+                                                                  const Eigen::Vector3d& dV, const double dt,
+                                                                  const Eigen::Matrix<double, 9, 6>& JincBias_ba_bg) {
+  const Eigen::Vector3f phi_f = Sophus::SO3f(dR.cast<float>()).log();
+  const Eigen::Matrix3f Jr_inv_f = ORB_SLAM3::IMU::InverseRightJacobianSO3(phi_f);
+  const Eigen::Matrix3d Jr_inv = Jr_inv_f.cast<double>();
+  const Eigen::Matrix3d Jr = Jr_inv.inverse();
+  const Eigen::Matrix3d I = Eigen::Matrix3d::Identity();
+
+  // State x order: [dp, dtheta, dv, dba, dbg]
+  Eigen::Matrix<double, 15, 15> F = Eigen::Matrix<double, 15, 15>::Zero();
+  F.block<3, 3>(0, 0) = I;
+  F.block<3, 3>(0, 3) = -skew(dP);
+  F.block<3, 3>(0, 6) = dt * I;
+  F.block<3, 3>(3, 3) = I;
+  F.block<3, 3>(6, 3) = -skew(dV);
+  F.block<3, 3>(6, 6) = I;
+  F.block<3, 3>(9, 9) = I;
+  F.block<3, 3>(12, 12) = I;
+
+  // Residual z order: [dphi, dp, dv, dba, dbg]
+  Eigen::Matrix<double, 15, 15> G = Eigen::Matrix<double, 15, 15>::Zero();
+  G.block<3, 3>(0, 3) = I;     // dp_e <- dp
+  G.block<3, 3>(3, 0) = Jr;    // dtheta_e <- Jr * dphi
+  G.block<3, 3>(6, 6) = I;     // dv_e <- dv
+  G.block<3, 3>(9, 9) = -I;    // dba_e <- -dba
+  G.block<3, 3>(12, 12) = -I;  // dbg_e <- -dbg
+
+  Eigen::Matrix<double, 15, 15> G_inv = G.transpose();
+  G_inv.block<3, 3>(0, 3) = Jr_inv;
+
+  Eigen::Matrix<double, 15, 15> J = F;
+  J.topRightCorner<9, 6>() += G.topLeftCorner<9, 9>() * JincBias_ba_bg;
+
+  PreintFactorJacobians out;
+  out.J_e = G_inv;
+  out.J_s = -G_inv * J;
+  return out;
+}
+
 static void usage(const char* argv0) {
   std::cerr << "usage: " << argv0 << " --imu_txt <imu_data_Tangent_0.txt> --config_yaml <cpc_config_Tangent_0.yaml> --out_txt <orb_preint_pack.txt>\n";
 }
@@ -328,6 +379,8 @@ int main(int argc, char** argv) {
     Eigen::Matrix<double, 15, 15> Sigma_z15 = Eigen::Matrix<double, 15, 15>::Zero();
     Sigma_z15.block<9, 9>(0, 0) = Sigma_z9;
     Sigma_z15.block<6, 6>(9, 9) = Sigma_bias_rw;
+    const PreintFactorJacobians jac_preint =
+        build_preint_factor_jacobians_local(dR_f.cast<double>(), dP_f.cast<double>(), dV_f.cast<double>(), DT, JincBias_ba_bg);
 
     // Write pack.
     std::ofstream ofs(out_txt.c_str(), std::ios::trunc);
@@ -353,6 +406,8 @@ int main(int argc, char** argv) {
 
     appendMatrixBlock(ofs, "Sigma_z9_orb", Sigma_z9);
     appendMatrixBlock(ofs, "JincBias_ba_bg_orb", JincBias_ba_bg);
+    appendMatrixBlock(ofs, "J_e_preint_orb", jac_preint.J_e);
+    appendMatrixBlock(ofs, "J_s_preint_orb", jac_preint.J_s);
     appendMatrixBlock(ofs, "Sigma_bias_rw_orb", Sigma_bias_rw);
     appendMatrixBlock(ofs, "Sigma_z15_orb", Sigma_z15);
 

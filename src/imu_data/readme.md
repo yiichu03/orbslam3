@@ -1,3 +1,20 @@
+ORB-SLAM3 的 exporter（orb_preint_pack.txt）里，compare_orbslam3_gtsam 实际只用这 8 个 block 名称：
+
+dR_orb
+dP_orb
+dV_orb
+DT_orb
+Sigma_z9_orb
+JincBias_ba_bg_orb
+Sigma_bias_rw_orb
+Sigma_z15_orb
+其它像 C9_orb_raw、Cbias_orb_raw、JRg_orb_raw/JVa_orb_raw/... 也都是 debug，不参与 compare。
+
+按它自身建模导出 9D 预积分测量 + 6D biasRW（以及 blockdiag 的 Sigma_z15），并用 compare_orbslam3_gtsam 对 GTSAM 9D+biasRW reference 全部通过，满足“按 GTSAM Tangent 误差状态定义拿到 jac/cov”的要求（只是它不是 Combined 15D 的那种带交叉项模型）。
+
+
+
+
 文件夹有🔓时候 sudo chown -R $USER:$USER /路径/到/文件夹
 
 docker start orbslam3_melodic
