@@ -26,6 +26,11 @@ cd /workspace/ORB_SLAM3
 chmod +x build.sh
 ./build.sh
 
+/workspace/ORB_SLAM3/src/tools/export_orb_preint_pack \
+   --imu_txt     /workspace/ORB_SLAM3/src/imu_data/imu_data_Tangent_0.txt \
+   --config_yaml /workspace/ORB_SLAM3/src/imu_data/cpc_config_Tangent_0.yaml \
+   --out_txt     /workspace/ORB_SLAM3/src/imu_data/orb_preint_pack.txt
+   
 # Export ORB-SLAM3 preintegration pack (9D preint + 6D bias RW)
 # 生成的 orb_preint_pack.txt 需要拷贝到 swift_vio 的 imu_data 目录用于后续 gtsam reference + compare
 #
