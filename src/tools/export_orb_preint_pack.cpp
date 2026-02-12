@@ -209,6 +209,11 @@ static void appendMatrixBlock(std::ostream &os, const std::string &name, const E
   os << '\n';
 }
 
+static Eigen::Matrix3d theta_to_phi_jacobian_from_dR(const Eigen::Matrix3f &dR) {
+  const Eigen::Vector3f phi_hat = Sophus::SO3f(dR).log();
+  return ORB_SLAM3::IMU::InverseRightJacobianSO3(phi_hat).cast<double>();
+}
+
 static void usage(const char *argv0) {
   std::cerr << "usage: " << argv0
             << " --imu_txt <imu_data_Tangent_0.txt> --config_yaml <cpc_config_Tangent_0.yaml> --out_txt <orb_preint_pack.txt>\n";
@@ -288,9 +293,11 @@ int main(int argc, char **argv) {
     const double DT = static_cast<double>(pim.dT);
 
     const Eigen::Matrix<double, 9, 9> C9_orb = pim.C.block<9, 9>(0, 0).cast<double>(); // [dtheta,dv,dp]
+    Eigen::Matrix3d T_theta_to_phi = Eigen::Matrix3d::Identity();
+    T_theta_to_phi = theta_to_phi_jacobian_from_dR(dR_f); // Comment this line to reproduce dphi == dtheta behavior.
 
     Eigen::Matrix<double, 9, 9> A9 = Eigen::Matrix<double, 9, 9>::Zero();
-    A9.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity(); // dphi == dtheta
+    A9.block<3, 3>(0, 0) = T_theta_to_phi;
     A9.block<3, 3>(3, 6) = Eigen::Matrix3d::Identity(); // dp <- orb dp
     A9.block<3, 3>(6, 3) = Eigen::Matrix3d::Identity(); // dv <- orb dv
 
@@ -303,11 +310,13 @@ int main(int argc, char **argv) {
     const Eigen::Matrix<double, 6, 6> Sigma_bias_rw = P6 * Cb_orb * P6.transpose();
 
     Eigen::Matrix<double, 9, 6> JincBias_ba_bg = Eigen::Matrix<double, 9, 6>::Zero();
-    JincBias_ba_bg.block<3, 3>(0, 3) = pim.JRg.cast<double>(); // dphi/dbg, using dphi==dtheta
+    JincBias_ba_bg.block<3, 3>(0, 3) = T_theta_to_phi * pim.JRg.cast<double>();
     JincBias_ba_bg.block<3, 3>(3, 0) = pim.JPa.cast<double>();
     JincBias_ba_bg.block<3, 3>(3, 3) = pim.JPg.cast<double>();
     JincBias_ba_bg.block<3, 3>(6, 0) = pim.JVa.cast<double>();
     JincBias_ba_bg.block<3, 3>(6, 3) = pim.JVg.cast<double>();
+    std::cout << "[debug] T_theta_to_phi * pim.JRg:\n" << (T_theta_to_phi * pim.JRg.cast<double>()) << "\n[debug] pim.JRg:\n"
+              << pim.JRg.cast<double>() << "\n";
 
     Eigen::Matrix<double, 15, 15> Sigma_z15 = Eigen::Matrix<double, 15, 15>::Zero();
     Sigma_z15.block<9, 9>(0, 0) = Sigma_z9;
