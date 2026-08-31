@@ -478,8 +478,7 @@ int main(int argc, char **argv) {
     const double DT = static_cast<double>(pim.dT);
 
     const Eigen::Matrix<double, 9, 9> C9_orb = pim.C.block<9, 9>(0, 0).cast<double>(); // [dtheta,dv,dp]
-    Eigen::Matrix3d T_theta_to_phi = Eigen::Matrix3d::Identity();
-    // T_theta_to_phi = theta_to_phi_jacobian_from_dR(dR_f); // Comment this line to reproduce dphi == dtheta behavior.
+    Eigen::Matrix3d T_theta_to_phi = theta_to_phi_jacobian_from_dR(dR_f);
 
     Eigen::Matrix<double, 9, 9> A9 = Eigen::Matrix<double, 9, 9>::Zero();
     A9.block<3, 3>(0, 0) = T_theta_to_phi;
